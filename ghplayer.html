@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title></title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;background:#000;}
+
+.player{
+  position:relative;
+  width:100vw;
+  height:100vh;
+  background:#000;
+  overflow:hidden;
+}
+
+video{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+
+/* 加载动画 */
+.loading{
+  position:absolute;
+  left:0;top:0;
+  width:100%;height:100%;
+  background:rgba(0,0,0,0.6);
+  display:flex;align-items:center;justify-content:center;
+  z-index:99;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.3s;
+}
+.loading.show{opacity:1;pointer-events:auto;}
+
+.loader-circle{
+  width:50px;height:50px;
+  border:3px solid rgba(255,255,255,0.2);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:rotate 0.8s infinite linear;
+}
+@keyframes rotate{to{transform:rotate(360deg);}}
+
+/* 控制栏默认隐藏 */
+.controls{
+  position:absolute;
+  bottom:0;left:0;
+  width:100%;height:50px;
+  background:rgba(0,0,0,0.6);
+  display:flex;align-items:center;
+  padding:0 16px;gap:14px;
+  z-index:10;
+  transition:transform 0.3s ease;
+  transform:translateY(100%);
+}
+.controls.show{
+  transform:translateY(0);
+}
+
+.btn{
+  background:none;border:none;
+  color:#fff;font-size:22px;
+  width:36px;height:36px;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.time{
+  color:#fff;font-size:15px;
+  flex:1;
+}
+
+video::-webkit-media-controls{display:none!important;}
+</style>
+</head>
+
+<body>
+<div class="player" id="playerWrap">
+    <video id="video" muted playsinline></video>
+    <div class="loading" id="loading"><div class="loader-circle"></div></div>
+    <div class="controls" id="controls">
+        <button class="btn" id="playBtn">▶</button>
+        <div class="time" id="time">00:00 / 00:00</div>
+        <button class="btn" id="soundBtn">🔇</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+<script>
+const video = document.getElementById('video');
+const playerWrap = document.getElementById('playerWrap');
+const loading = document.getElementById('loading');
+const controls = document.getElementById('controls');
+const playBtn = document.getElementById('playBtn');
+const soundBtn = document.getElementById('soundBtn');
+const timeEl = document.getElementById('time');
+
+let hideTimer = null;
+let autoHideDelay = 5000; // 5秒无操作自动隐藏
+
+function getQueryString(name) {
+    const reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
+    const r = window.location.search.substr(1).match(reg);
+    if (r != null) {
+        return decodeURIComponent(r[2]);
+    }
+    return "";
+}
+
+function isHttp(str) {
+  return str.toLowerCase().includes('http');
+}
+
+// 你的 m3u8 地址
+var m3u8Url = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+//m3u8Url = "https://cdn.jsdelivr.net/gh/970151336/files/m3u8/19_jd_900.m3u8";
+const u = getQueryString("u");
+if (u) {
+    m3u8Url = isHttp(u)? u : atob(u);
+}
+
+// 点击屏幕显示/隐藏控制栏
+playerWrap.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (controls.classList.contains('show')) {
+    controls.classList.remove('show');
+    clearTimeout(hideTimer);
+  } else {
+    showControls();
+  }
+});
+
+// 显示控制栏并启动自动隐藏
+function showControls() {
+  controls.classList.add('show');
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    controls.classList.remove('show');
+  }, autoHideDelay);
+}
+
+// 点击控制栏内部不隐藏
+controls.addEventListener('click', (e) => {
+  e.stopPropagation();
+  showControls();
+});
+
+// 缓冲加载动画
+video.addEventListener('waiting', () => loading.classList.add('show'));
+video.addEventListener('playing', () => loading.classList.remove('show'));
+
+// 播放暂停
+playBtn.addEventListener('click', () => {
+  if (video.paused) {
+    video.play();
+    playBtn.textContent = '❚❚';
+  } else {
+    video.pause();
+    playBtn.textContent = '▶';
+  }
+});
+
+// 静音切换
+soundBtn.addEventListener('click', () => {
+  video.muted = !video.muted;
+  soundBtn.textContent = video.muted ? '🔇' : '🔊';
+});
+
+// 时间更新
+video.addEventListener('timeupdate', () => {
+  timeEl.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+});
+
+function fmt(t) {
+  if (isNaN(t)) return "00:00";
+  const m = String(Math.floor(t / 60)).padStart(2, '0');
+  const s = String(Math.floor(t % 60)).padStart(2, '0');
+  return m + ':' + s;
+}
+
+// 加载m3u8 + 自动播放
+if (Hls.isSupported()) {
+  const hls = new Hls();
+  hls.loadSource(m3u8Url);
+  hls.attachMedia(video);
+  
+  // 自动播放逻辑
+  hls.on(Hls.Events.MANIFEST_PARSED, function() {
+    video.play().then(() => {
+      playBtn.textContent = '❚❚';
+    }).catch(err => {
+      console.log("自动播放被限制，需点击播放");
+      playBtn.textContent = '▶';
+    });
+  });
+} else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+  video.src = m3u8Url;
+  video.addEventListener('loadedmetadata', function() {
+    video.play().then(() => {
+      playBtn.textContent = '❚❚';
+    }).catch(err => {
+      console.log("自动播放被限制，需点击播放");
+      playBtn.textContent = '▶';
+    });
+  });
+}
+</script>
+</body>
+</html>
